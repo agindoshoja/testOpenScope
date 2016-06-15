@@ -1,0 +1,95 @@
+
+USE [EBSOS3]
+GO
+/****** Object:  Trigger [dbo].[reNR]    Script Date: 13.06.2016 14:12:57 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		<Author,,Name>
+-- Create date: <Create Date,,>
+-- Description:	<Description,,>
+-- =============================================
+ALTER TRIGGER [dbo].[reNR] 
+   ON  [dbo].[Rechnungen]
+   AFTER INSERT,Update
+AS 
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+    -- Insert statements for trigger here
+
+	declare @id int;
+	declare @mc int;
+	declare @mcname varchar(50);
+	declare @rnr varchar(60);
+	declare @rnrk varchar(6);
+	declare @maxrnr int;
+	declare @rsum int;
+	declare @r_nrTable varchar(60);
+	declare @posBetrag int=0;
+	declare @changeRNR int=0;
+	declare @getID cursor;
+	declare @cursorID int;
+	declare @cursorMC int;
+
+	SET @id = (SELECT r_id FROM inserted);
+	SET @r_nrTable = (SELECT r_nr_kurz FROM inserted);	
+	SET @mc = (SELECT r_mc FROM inserted);	
+	SET @mcname = (SELECT k_mc FROM Kontrahent WHERE k_id=@mc);	
+	SET @maxrnr = (SELECT max(r_nr_kurz) as x FROM Rechnungen WHERE r_summe<>0 ) + 1;	
+	SET @rsum = (SELECT r_summe FROM inserted);	
+	SET @posBetrag = (SELECT count(rp_betrag) as x FROM Rechnungspositionen WHERE rp_id=@id and rp_betrag>0);	
+					
+	SET @rnr='RE_'  +  right('000000' + cast(@maxrnr as varchar),6) + '_' + @mcname;
+	SET @rnrk= right('000000' + cast(@maxrnr as varchar),6); 
+		
+	if @posBetrag>0
+		begin
+			set @changeRNR=1;
+		end
+
+	--erst alle währung auf 3
+	--if @r_nrTable is null auskommentieren
+	--letzten eintrag nummer setzten 9999
+	--alle währung auf 2 setzten trigger startet und vergibt neue rechnungsnummer
+	--if @r_nrTable is null wieder auskommentieren/aktivieren der Bedingung
+
+	if @changeRNR=1
+		begin	
+			if @r_nrTable is null--
+			begin		--
+				update Rechnungen SET r_nr=rtrim(@rnr) WHERE r_id=@id;
+				update Rechnungen SET r_nr_kurz=rtrim(@rnrk) WHERE r_id=@id;
+			end--
+		end
+	if @changeRNR=0
+		begin					
+			update Rechnungen SET r_nr=null WHERE r_id=@id;
+			update Rechnungen SET r_nr_kurz=Null WHERE r_id=@id;	
+
+			SET @maxrnr = (SELECT max(r_nr_kurz) as x FROM Rechnungen WHERE r_summe<>0 and r_status=2) ;
+
+			set @getID=cursor for SELECT r_id, r_mc FROM Rechnungen WHERE r_status=1 and r_summe<>0 ORDER BY r_id
+
+			OPEN @getID
+			fetch next from @getID into @cursorid,@cursorMC
+			while @@Fetch_Status = 0
+			Begin
+				
+				SET @mcname = (SELECT k_mc FROM Kontrahent WHERE k_id=@cursorMC);	
+				SET @maxrnr= @maxrnr+1;
+				SET @rnr='RE_'  +  right('000000' + cast(@maxrnr as varchar),6) + '_' + @mcname;
+				SET @rnrk= right('000000' + cast(@maxrnr as varchar),6); 
+				update Rechnungen SET r_nr=rtrim(@rnr) WHERE r_id=@cursorid;
+				update Rechnungen SET r_nr_kurz=rtrim(@rnrk) WHERE r_id=@cursorid;
+				Fetch Next from @getID Into @cursorID,@cursorMC
+			end
+			close @getID;
+			deallocate @getID;
+		end
+		
+END
